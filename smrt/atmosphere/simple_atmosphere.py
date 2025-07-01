@@ -47,7 +47,7 @@ from ..core.atmosphere import AtmosphereBase, AtmosphereResult
 
 
 class SimpleAtmosphere(AtmosphereBase):
-    def __init__(self, theta, tb_down, tb_up, transmittance):
+    def __init__(self, theta, tb_down, tb_up, transmittance, npol=None):
         if len(theta) < 2:
             raise SMRTError(
                 "The theta parameter must be a list or array of angles in degrees with at least two values (0° and close to 90° recommended)."
@@ -81,15 +81,29 @@ class SimpleAtmosphere(AtmosphereBase):
         else:
             self.tbup = np.array(tb_up)[i]
         if isinstance(transmittance, dict):
-            try:
-                self.trans = {
-                    key: np.array(value)[i] for key, value in zip(transmittance.keys(), transmittance.values())
-                }
-            except IndexError:
-                raise SMRTError(
-                    "The length of the transmittance values must match the length of the theta array. "
-                    f"Got {len(transmittance)} values for {len(theta)} angles."
-                )
+            if npol is not None:
+                i = np.repeat(i, npol) * 2  # account for polarization
+                i[1::2] += 1  # ensure order of pola = ["V", "H"] remains
+
+                try:
+                    self.trans = {
+                        key: np.array(value)[i] for key, value in zip(transmittance.keys(), transmittance.values())
+                    }
+                except IndexError:
+                    raise SMRTError(
+                        "The length of the transmittance values must match the length of the theta array. "
+                        f"Got {len(transmittance)} values for {len(theta)} angles."
+                    )
+            else:
+                try:
+                    self.trans = {
+                        key: np.array(value)[i] for key, value in zip(transmittance.keys(), transmittance.values())
+                    }
+                except IndexError:
+                    raise SMRTError(
+                        "The length of the transmittance values must match the length of the theta array. "
+                        f"Got {len(transmittance)} values for {len(theta)} angles."
+                    )
         else:
             self.trans = np.array(transmittance)[i]
 
@@ -100,7 +114,18 @@ class SimpleAtmosphere(AtmosphereBase):
                     raise SMRTError(f"Frequency {frequency} not defined in atmosphere.")
                 else:
                     x = x[frequency]
-            return np.repeat(np.interp(costheta, self.costheta, x), npol)
+
+                    if len(x) == 2 * len(self.costheta):
+                        return np.insert(
+                            np.interp(costheta, self.costheta, x[1::2]),
+                            np.arange(np.size(costheta)),
+                            np.interp(costheta, self.costheta, x[0::2]),
+                        )  # ensure order of pola = ["V", "H"] remains
+                        return np.array(
+                            [np.interp(costheta, self.costheta, x[0::2]), np.interp(costheta, self.costheta, x[1::2])]
+                        )  # ensure order of pola = ["V", "H"] remains
+                    else:
+                        return np.repeat(np.interp(costheta, self.costheta, x), npol)
 
         return AtmosphereResult(
             tb_down=interpolate(self.tbdown), tb_up=interpolate(self.tbup), transmittance=interpolate(self.trans)
