@@ -5,11 +5,62 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+
 ### Added
 
 ### Changed
 
-	- EMModel.ks is now a function to handle non isotropic scatterers
+### Bug
+
+## [v1.7]
+### Added
+	- add nadir_sar_altimetry module for SAR Altimetry waveform simulations
+
+## [v1.6]
+### Added
+	- add two faster diagonalization methods in DORT: half_rank_eig and stamnes88. "eig" is still the default, but this
+	  may change in the future.
+	- add second order iterative rtsolver
+	- add successive_order rtsolver.
+	- add local incidence angles in altimetry calculation from satellite pitch and roll angles.
+	- a make_bedrock function to create rock layers.
+	- add precommit configuration and documentation for developers
+	- add Turner2016 water permittivity for supercoold water
+	- allow to define the emmodel and emmodel in the Layer object. This override the default emmodel used in make_model.
+	- add optional cache for the diagonalization in DORT, allowing strong acceleration in case of identical layers
+	  within a snowpacks or across snowpacks. Experimental.
+	- add atmosphere objects together now results in an atmosphere stack
+	- allow to use a string where permittivity_module function are expected. Import is automatic.
+	- add method Result.ks() and Result.ka().
+	- add method __repr__ to provide a printable representation of results. Useful to show the results in notebooks.
+	- add make_slush function in make_medium
+
+### Changed
+	- the full planck function is now used in DORT and other solvers for passive mode calculations. This should slightly improve the brightness temperature at high frequencies and low temperatures. Rayleigh Jeans approximations can be enable to recover the previous behavior.
+	- change Python support to >=3.10. Old versions are not supported anymore.
+	- parallel_computation=True is now the default to run simulation. It is even faster on single simulation (thanks to joblib magic)
+	- SMRT code is now formatted with ruff.
+	- the documentation is refactored.
+	- in nadir_lrm_altimetry oversampling argument becomes oversampling_time.
+	- Snowpack.copy is depreciated, it is replaced by shallow_copy.
+	- align how substrate permittivities work on layer permittivities, by using the decorator "layer_properties".
+	- improve parallel_computation to select between outer and inner parallelism (above the rtsolver or inside)
+
+### Bug
+	- Solve a bug when no snowpack and DMRT_QCA_ShortRange is used due to incompatible microstructure
+
+
+## [v1.5]
+### Added
+
+	- a first order iterative solver has been added for radar. Provide a decomposition of the interaction mechanisms.
+	- a multi-fresnel solver has been added for passive microwave and non-scattering media.
+
+### Changed
+
+	- update of pyproject.toml
+	- all docstrings are converted to google style for a better readability and maintenance.
+	- EMModel.ks is now a function to handle non isotropic scatterers.
 	- the coordinate t_gate is renamed delay in nadir_lrm_altimetry.
 
 ## [v1.4]

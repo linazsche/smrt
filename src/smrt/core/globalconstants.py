@@ -1,0 +1,43 @@
+# coding: utf-8
+
+"""This module defines global constants used throughout the model are defined here and imported as needed.
+The constants are:
+
+=====================   ===============================   =================================================
+Parameter               Description                       Value
+=====================   ===============================   =================================================
+DENSITY_OF_ICE          Density of pure ice at 273.15K    916.7 kg m :sup:`-3`
+FREEZING_POINT          Freezing point of pure water      273.15 K
+C_SPEED                 Speed of light in a vacuum        2.99792458 x 10 :sup:`8` ms :sup:`-1`
+PERMITTIVITY_OF_AIR     Relative permittivity of air      1
+=====================   ===============================   =================================================
+
+**Usage example:**
+
+    ::
+
+        from smrt.core.globalconstants import DENSITY_OF_ICE
+"""
+
+import numpy as np
+
+DENSITY_OF_ICE = 916.7
+DENSITY_OF_WATER = 1000
+FREEZING_POINT = 273.15
+PERMITTIVITY_OF_AIR = 1.0
+
+C_SPEED = 299792458.0
+PLANCK_CONSTANT = 6.62607015e-34
+BOLTZMANN_CONSTANT = 1.380649e-23
+PERMITTIVITY_OF_FREE_SPACE = 1 / (4e-7 * np.pi * C_SPEED**2)
+
+EARTH_RADIUS = 6371000.0  # volumetric mean radius of the earth
+
+LOG2 = 0.6931471805599453  # often used in altimetry
+LOG4 = 1.3862943611198906  # often used in altimetry
+
+GHz = 1e9  # G in fact
+cm = 1e-2  # centimeter
+mm = 1e-3  # millimeter
+micron = 1e-6  # micron
+PSU = 1e-3  # g/kg -> kg/kg

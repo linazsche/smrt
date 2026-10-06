@@ -1,0 +1,17 @@
+# coding: utf-8
+
+"""Implements the flat interface boundary for the bottom layer (substrate).
+
+The reflection and transmission are computed using the Fresnel coefficients. This model does not take any specific
+parameter.
+"""
+
+# local import
+from smrt.core.interface import substrate_from_interface
+from smrt.interface.flat import Flat as iFlat
+
+
+# autogenerate from interface.Flat
+@substrate_from_interface(iFlat)
+class Flat:
+    pass

@@ -1,0 +1,300 @@
+# coding: utf-8
+
+"""This module provides functions to build a soil or bedrock as substrate or as multi-layer columns.
+
+To create a substrate (bottom interface under a snowpack), use `make_soil_substrate`.
+This function is able to automatically load a specific soil or bedrock model and provides many permittivity formulae
+defined in the files permittivity/soil.py and permittivity/bedrock.py (or any other).
+
+Example::
+
+    from smrt import make_soil_substrate
+    soil = make_soil_substrate("soil_wegmuller", "soil_permittivity_dobson85_peplinski95", moisture=0.2, sand=0.4,
+                     clay=0.3, dry_matter=1100, roughness_rms=1e-2)
+    # Bedrock example:
+    bedrock = make_soil_substrate("flat", "bedrock_permittivity_granite_hartlieb16", temperature=270)
+
+It is recommended to first read the documentation of `make_soil_substrate` and then explore the different types of soil
+or bedrock models.
+
+To create a multi-layered soil column, use `make_soil_column` as follows
+
+Example::
+    from smrt.inputs.make_soil import make_soil_column
+    soil_column = make_soil_column(
+        thickness=[0.1, 0.2, 0.3],
+        temperature=[270, 275, 280],
+        soil_permittivity_model="soil_permittivity_dobson85_peplinski95",
+        moisture=[0.2, 0.3, 0.4],
+        sand=[0.4, 0.5, 0.6],
+        clay=[0.3, 0.2, 0.1],
+        dry_matter=[1100, 1200, 1300],
+    )
+
+
+"""
+
+from smrt.core import lib
+
+# local import
+from smrt.core.error import SMRTError
+from smrt.core.globalconstants import FREEZING_POINT
+from smrt.core.interface import Substrate, get_substrate_model, make_interface
+from smrt.core.layer import Layer, get_microstructure_model
+from smrt.core.snowpack import Snowpack
+from smrt.inputs.make_medium import add_transparent_layer
+from smrt.permittivity.permittivity_utils import permittivity_function
+from smrt.permittivity.soil import soil_permittivity_dobson85_peplinski95
+
+
+def make_soil(
+    *args,
+    **kwargs,
+) -> Substrate:
+    DeprecationWarning(
+        "make_soil is deprecated and will be removed in future versions. Please use make_soil_substrate instead. The "
+    )
+    return make_soil_substrate(*args, **kwargs)
+
+
+def make_soil_substrate(
+    substrate_model,
+    permittivity_model=None,
+    temperature=FREEZING_POINT,
+    moisture=None,
+    sand=None,
+    clay=None,
+    dry_matter=None,
+    **kwargs,
+) -> Substrate:
+    """Construct a soil or bedrock substrate instance based on a given surface electromagnetic model, a permittivity
+    model and parameters.
+
+    This function returns a substrate and can only be used as a bottom boundary condition in a snowpack or soil-snowpack
+    model. See :py:func:`~smrt.inputs.make_soil.make_soil_layer` and :py:func:`~smrt.inputs.make_soil.make_soil_column`
+    functions if you want a soil layer or several soil layers.
+
+    Args:
+        substrate_model: Name of substrate model, can be a class or a string. e.g. fresnel, wegmuller...
+        permittivity_model: Permittivity model to use. Can be a name (soil: "hut_epss", "dobson85_peplinski95",
+            "montpetit2008"; bedrock: "granite_hartlieb16", "frozen_bedrock_tulaczyk20", ...), a function of frequency
+            and temperature or a complex value.  If None, the default is
+            :py:func:`~smrt.permittivity.soil.soil_permittivity_dobson85_peplinski95`.
+        temperature: Temperature of the soil/bedrock.
+        moisture: Soil moisture in m^3 m^-3 to compute the permittivity. This parameter is used depending on the
+            permittivity_model.
+        sand: Soil relative sand content. This parameter is used or not depending on the permittivity_model.
+        clay: Soil relative clay content. This parameter is used or not depending on the permittivity_model.
+        dry_matter: Soil content in dry matter in kg m^-3. This parameter is used or not depending on the
+            permittivity_model.
+        **kwargs: Geometrical parameters depending on the substrate_model. Refer to the document of each model to see
+            the list of required and optional parameters. Usually, it is roughness_rms, corr_length, ...
+
+    Returns:
+        Instance of the soil substrate model.
+
+    Example (TOTEST)::
+
+        bottom = substrate.make('Flat', permittivity_model=complex('6-0.5j'))
+        bottom = substrate.make('Wegmuller', permittivity_model='soil', roughness_rms=0.25, moisture=0.25)
+    """
+    # process the permittivity_model argument
+    permittivity_model = get_permittivity_function(permittivity_model) or soil_permittivity_dobson85_peplinski95
+
+    # process the substrate_model argument
+    if not isinstance(substrate_model, type):
+        substrate_model = get_substrate_model(substrate_model)
+
+    # create the instance
+    return substrate_model(
+        temperature, permittivity_model, moisture=moisture, sand=sand, clay=clay, dry_matter=dry_matter, **kwargs
+    )
+
+
+def make_soil_column(
+    thickness,
+    soil_permittivity_model=None,
+    temperature=FREEZING_POINT,
+    moisture=None,
+    sand=None,
+    clay=None,
+    dry_matter=None,
+    surface=None,
+    interface=None,
+    substrate=None,
+    atmosphere=None,
+    add_soil_substrate=False,
+    **kwargs,
+) -> Snowpack:
+    """Build a multi-layered soil column. Each parameter can be an array, list or a constant value.
+
+    :param thickness: thicknesses of the layers in meter (from top to bottom). The last layer thickness can be
+        "numpy.inf" for a semi-infinite layer. Any layer with zero thickness is removed.
+    :param soil_permittivity_model: Permittivity model to use. Can be a name, a function of
+            frequency and temperature or a complex value.
+    :param temperature: temperature of soil in K.
+    :param moisture: Soil moisture in m^3 m^-3 to compute the permittivity. This parameter is used depending on the
+        permittivity_model.
+    :param sand: Soil relative sand content. This parameter is used or not depending on the permittivity_model.
+    :param clay: Soil relative clay content. This parameter is used or not depending on the permittivity_model.
+    :param dry_matter: Soil content in dry matter in kg m^-3. This parameter is used or not depending on the
+        permittivity_model.
+    :param surface: type of surface interface, flat/fresnel is the default.  If surface and interface are both set, the
+        interface must be a constant refering to all the "internal" interfaces.
+    :param interface: type of interface, flat/fresnel is the default. It is usually a string for the interfaces without
+        parameters (e.g. Flat or Transparent) or is created with :py:func:`~smrt.core.interface.make_interface` in more
+        complex cases. Interface can be a constant or a list. In the latter case, its length must be the same as the
+        number of layers, and interface[0] refers to the surface interface.
+    :param add_soil_substrate: If True adds a substrate with Flat interface made of the same soil as the last layer.
+    :param substrate: if add_soil_substrate is False, the substrate can be prescribed with this argument.
+
+    All the other optional arguments are passed for each layer to the function
+    :py:func:`~smrt.inputs.make_medium.make_ice_layer`. The documentation of this function describes in detail the
+    parameters used/required depending on ice_type.
+
+    """
+
+    if add_soil_substrate:
+        if substrate is not None:
+            raise SMRTError("add_soil_substrate is True but substrate is also set. This is ambiguous.")
+
+        substrate = make_soil_substrate(
+            "flat",
+            soil_permittivity_model=soil_permittivity_model,
+            temperature=lib.get(temperature, -1),
+            moisture=lib.get(moisture, -1),
+            sand=lib.get(sand, -1),
+            clay=lib.get(clay, -1),
+            dry_matter=lib.get(dry_matter, -1),
+            **lib.get(kwargs, -1),
+        )
+
+    sp = Snowpack(
+        substrate=substrate, atmosphere=atmosphere
+    )  # ??????????????????????????????????????????????????????????????????????????
+
+    n = len(thickness)
+    for name in [
+        "temperature",
+        "moisture",
+        "sand",
+        "clay",
+        "dry_matter",
+        "interface",
+        "kwargs",
+    ]:
+        lib.check_argument_size(locals()[name], n)
+
+    if surface is not None and lib.is_sequence(interface):
+        raise SMRTError(
+            "Setting both 'surface' and 'interface' arguments is ambiguous when inteface is a list or any sequence."
+        )
+
+    for i, dz in enumerate(thickness):
+        if dz <= 0:
+            continue
+        layer = make_soil_layer(
+            layer_thickness=dz,
+            temperature=lib.get(temperature, i),
+            soil_permittivity_model=soil_permittivity_model,
+            moisture=lib.get(moisture, i),
+            sand=lib.get(sand, i),
+            clay=lib.get(clay, i),
+            dry_matter=lib.get(dry_matter, i),
+            **lib.get(kwargs, i),
+        )
+
+        # add the interface or surface for the first non-zero layer
+        linterface = lib.get(interface, i, "interface") if surface is None else surface
+        surface = None
+        sp.append(layer, interface=make_interface(linterface))
+
+    # snowpack without layer is accepted as input of this function, but SMRT prefers to have one internally.
+    # we make a transparent volume
+    if sp.nlayer == 0:
+        sp = add_transparent_layer(sp)
+
+    return sp
+
+
+def make_soil_layer(
+    layer_thickness,
+    soil_permittivity_model=None,
+    temperature=FREEZING_POINT,
+    moisture=None,
+    sand=None,
+    clay=None,
+    dry_matter=None,
+    **kwargs,
+) -> Layer:
+    """Make a soil layer with given geophysical parameters
+
+    Args:
+        layer_thickness: Thickness of ice layer in m.
+        soil_permittivity_model: Permittivity model to use (see :py:mod:`~smrt.permittivity.soil`).  If None, the
+            default is :py:func:`~smrt.permittivity.soil.soil_permittivity_dobson85_peplinski95`.
+        temperature: Temperature of layer in K.
+        moisture: Soil moisture in m^3 m^-3 to compute the permittivity. This parameter is used depending on the
+            permittivity_model.
+        sand: Soil relative sand content. This parameter is used or not depending on the permittivity_model.
+        clay: Soil relative clay content. This parameter is used or not depending on the permittivity_model.
+        dry_matter: Soil content in dry matter in kg m^-3. This parameter is used or not depending on the
+            permittivity_model.
+
+    Returns:
+        Layer: Instance of Layer.
+    """
+    # background permittivity (default = soil_permittivity_dobson85_peplinski95)
+    eps_1 = get_permittivity_function(soil_permittivity_model) or soil_permittivity_dobson85_peplinski95
+
+    lay = Layer(
+        float(layer_thickness),
+        # SMRT needs a microstructure. Here you can use the homogeneous microstructure if you don't want scattering.
+        microstructure_model=get_microstructure_model(
+            "homogeneous"
+        ),  # SMRT needs a microstructure. Here you can use the homogeneous microstructure if you don't want scattering.
+        temperature=float(temperature),
+        # Almost all microstructure need a frac_volume. frac_volume=0 means that the layer is empty of scatteres, it
+        # only contains the background
+        frac_volume=0,
+        permittivity_model=(
+            eps_1,
+            1,
+        ),
+        moisture=moisture,
+        sand=sand,
+        clay=clay,
+        dry_matter=dry_matter,
+        **kwargs,
+    )
+
+    # lay.read_only_attributes = {"ice_type", "density", "porosity"}   # <---- GHI: remove this
+
+    return lay
+
+
+def get_permittivity_function(permittivity_model):
+    """Return a permittivity function or value based on a string.
+
+    Args:
+        permittivity_model: can be a string, a function or a complex value. If a string, it is used to get the
+            corresponding function in smrt.permittivity.soil or smrt.permittivity.bedrock. If a function or a complex
+            value, it is returned as is.
+    """
+
+    if isinstance(permittivity_model, str):
+        if permittivity_model in ["hut_epss", "dobson85", "dobson85_peplinski95", "montpetit2008"]:
+            from warnings import warn
+
+            warn(
+                f"The permittivity model '{permittivity_model}' should be called with the prefix 'soil_permittivity_'"
+                f". The new recommended name is 'soil_permittivity_{permittivity_model}'. This will become an error"
+                "in the future.",
+                DeprecationWarning,
+            )
+            permittivity_model = "soil_permittivity_" + permittivity_model
+
+        return permittivity_function(permittivity_model)
+    else:
+        # return as is
+        return permittivity_model
